@@ -1,0 +1,276 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://craft.local/schemas/pspec.schema.json",
+  "title": "Craft PSPEC (Parametric Specification) v0.1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "pspec_version",
+    "project_id",
+    "revision",
+    "created_at",
+    "units",
+    "archetype",
+    "inputs",
+    "overall",
+    "material",
+    "constraints",
+    "access",
+    "output_profile",
+    "components"
+  ],
+  "properties": {
+    "pspec_version": { "const": "0.1.0" },
+    "project_id": { "$ref": "#/$defs/projectId" },
+    "revision": { "type": "integer", "minimum": 1 },
+    "created_at": { "type": "string", "format": "date-time" },
+    "units": { "const": "mm" },
+
+    "archetype": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "speaker_enclosure_type"],
+      "properties": {
+        "id": { "const": "record_console" },
+        "version": { "const": "0.1" },
+        "speaker_enclosure_type": {
+          "description": "V1: sealed-only (no ported enclosure design).",
+          "const": "sealed"
+        }
+      }
+    },
+
+    "inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["crg", "dib"],
+      "properties": {
+        "crg": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["original_filename", "format", "bytes", "sha256", "uploaded_at"],
+          "properties": {
+            "original_filename": { "$ref": "#/$defs/fileName" },
+            "format": { "enum": ["glb", "gltf", "fbx", "obj"] },
+            "bytes": { "type": "integer", "minimum": 1 },
+            "sha256": { "$ref": "#/$defs/sha256" },
+            "uploaded_at": { "type": "string", "format": "date-time" }
+          }
+        },
+        "dib": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["revision", "sha256", "confirmed_at"],
+          "properties": {
+            "revision": { "type": "integer", "minimum": 1 },
+            "sha256": { "$ref": "#/$defs/sha256" },
+            "confirmed_at": { "type": "string", "format": "date-time" }
+          }
+        }
+      }
+    },
+
+    "overall": { "$ref": "#/$defs/dimensions3dMm" },
+
+    "material": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "thickness_mm"],
+      "properties": {
+        "type": {
+          "enum": ["plywood", "mdf", "veneer_plywood", "other"]
+        },
+        "thickness_mm": {
+          "description": "Sheet-goods thickness used for parametric reconstruction.",
+          "$ref": "#/$defs/mmPositive"
+        },
+        "notes": { "type": "string", "maxLength": 2000 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "const": "other" } }, "required": ["type"] },
+          "then": { "required": ["notes"] }
+        }
+      ]
+    },
+
+    "constraints": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["back_clearance_mm"],
+      "properties": {
+        "back_clearance_mm": {
+          "description": "Non-authoritative CRG is never used to infer this; must come from DIB/default+confirmation.",
+          "$ref": "#/$defs/mmNonNegative"
+        }
+      }
+    },
+
+    "access": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rear_service_hatch"],
+      "properties": {
+        "rear_service_hatch": { "type": "boolean" }
+      }
+    },
+
+    "output_profile": { "$ref": "#/$defs/outputProfile" },
+
+    "components": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["speakers", "turntable", "amplifier", "drawers"],
+      "properties": {
+        "speakers": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["count", "enclosure_type", "external_mm", "weight_kg", "clearance_mm", "isolation"],
+          "properties": {
+            "count": {
+              "description": "Record-console archetype implies left/right speaker bays.",
+              "const": 2
+            },
+            "enclosure_type": { "const": "sealed" },
+            "external_mm": { "$ref": "#/$defs/dimensions3dMm" },
+            "weight_kg": { "$ref": "#/$defs/kgPositive" },
+            "clearance_mm": { "$ref": "#/$defs/clearance6Mm" },
+            "isolation": { "$ref": "#/$defs/isolationChoice" }
+          }
+        },
+
+        "turntable": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["external_mm", "isolation"],
+          "properties": {
+            "external_mm": { "$ref": "#/$defs/dimensions3dMm" },
+            "isolation": { "type": "boolean" },
+            "clearance_mm": { "$ref": "#/$defs/clearance6Mm" }
+          }
+        },
+
+        "amplifier": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["external_mm", "ventilation_direction", "clearance_mm"],
+          "properties": {
+            "external_mm": { "$ref": "#/$defs/dimensions3dMm" },
+            "ventilation_direction": { "$ref": "#/$defs/ventDirection" },
+            "clearance_mm": {
+              "description": "Use to ensure ventilation and cable routing are physically possible.",
+              "$ref": "#/$defs/clearance6Mm"
+            }
+          }
+        },
+
+        "drawers": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["count", "lp_capacity_target"],
+          "properties": {
+            "count": { "type": "integer", "minimum": 0, "maximum": 6 },
+            "lp_capacity_target": { "type": "integer", "minimum": 0, "maximum": 3000 }
+          },
+          "allOf": [
+            {
+              "if": { "properties": { "count": { "minimum": 1 } }, "required": ["count"] },
+              "then": {
+                "properties": { "lp_capacity_target": { "minimum": 1 } },
+                "required": ["lp_capacity_target"]
+              }
+            }
+          ]
+        }
+      }
+    },
+
+    "notes": { "type": "string", "maxLength": 8000 }
+  },
+
+  "$defs": {
+    "projectId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{5,63}$"
+    },
+    "fileName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+
+    "mmPositive": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "maximum": 10000
+    },
+    "mmNonNegative": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 2000
+    },
+    "kgPositive": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "maximum": 500
+    },
+
+    "dimensions3dMm": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["width_mm", "height_mm", "depth_mm"],
+      "properties": {
+        "width_mm": { "$ref": "#/$defs/mmPositive" },
+        "height_mm": { "$ref": "#/$defs/mmPositive" },
+        "depth_mm": { "$ref": "#/$defs/mmPositive" }
+      }
+    },
+
+    "clearance6Mm": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["left_mm", "right_mm", "top_mm", "bottom_mm", "front_mm", "rear_mm"],
+      "properties": {
+        "left_mm": { "$ref": "#/$defs/mmNonNegative" },
+        "right_mm": { "$ref": "#/$defs/mmNonNegative" },
+        "top_mm": { "$ref": "#/$defs/mmNonNegative" },
+        "bottom_mm": { "$ref": "#/$defs/mmNonNegative" },
+        "front_mm": { "$ref": "#/$defs/mmNonNegative" },
+        "rear_mm": { "$ref": "#/$defs/mmNonNegative" }
+      }
+    },
+
+    "outputProfile": {
+      "type": "string",
+      "enum": ["hand_tools", "panel_saw", "cnc_shop"]
+    },
+
+    "ventDirection": {
+      "type": "string",
+      "enum": ["front", "rear", "up", "left", "right"]
+    },
+
+    "isolationChoice": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["strategy"],
+      "properties": {
+        "strategy": {
+          "enum": ["none", "foam_pad", "sorbothane_feet", "spikes", "floating_shelf", "other"]
+        },
+        "notes": { "type": "string", "maxLength": 2000 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "strategy": { "const": "other" } }, "required": ["strategy"] },
+          "then": { "required": ["notes"] }
+        }
+      ]
+    }
+  }
+}
+

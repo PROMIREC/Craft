@@ -1,0 +1,48 @@
+{
+  "dib_version": "0.1.0",
+  "project_id": "example_project",
+  "revision": 1,
+  "created_at": "2026-01-28T00:00:00.000Z",
+  "confirmed_at": "2026-01-28T00:00:00.000Z",
+  "assumptions": {
+    "archetype_confirmed": true,
+    "sealed_speakers_confirmed": true
+  },
+  "overall": {
+    "width_mm": 1600,
+    "height_mm": 750,
+    "depth_mm": 450
+  },
+  "constraints": {
+    "back_clearance_mm": 25
+  },
+  "access": {
+    "rear_service_hatch": true
+  },
+  "material": {
+    "type": "plywood",
+    "thickness_mm": 18
+  },
+  "speakers": {
+    "external_mm": { "width_mm": 240, "height_mm": 400, "depth_mm": 300 },
+    "weight_kg": 8.5,
+    "required_clearance_mm": 10,
+    "isolation": { "strategy": "sorbothane_feet" }
+  },
+  "turntable": {
+    "external_mm": { "width_mm": 460, "height_mm": 160, "depth_mm": 380 },
+    "isolation": true
+  },
+  "amplifier": {
+    "external_mm": { "width_mm": 430, "height_mm": 95, "depth_mm": 360 },
+    "ventilation_direction": "up",
+    "required_clearance_mm": 20
+  },
+  "drawers": {
+    "count": 2,
+    "lp_capacity_target": 200
+  },
+  "output_profile": "panel_saw",
+  "confirmed": true
+}
+

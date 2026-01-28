@@ -1,0 +1,88 @@
+{
+  "pspec_version": "0.1.0",
+  "project_id": "example_project",
+  "revision": 1,
+  "created_at": "2026-01-28T00:00:00.000Z",
+  "units": "mm",
+  "archetype": {
+    "id": "record_console",
+    "version": "0.1",
+    "speaker_enclosure_type": "sealed"
+  },
+  "inputs": {
+    "crg": {
+      "original_filename": "concept.glb",
+      "format": "glb",
+      "bytes": 123456,
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "uploaded_at": "2026-01-28T00:00:00.000Z"
+    },
+    "dib": {
+      "revision": 1,
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "confirmed_at": "2026-01-28T00:00:00.000Z"
+    }
+  },
+  "overall": {
+    "width_mm": 1600,
+    "height_mm": 750,
+    "depth_mm": 450
+  },
+  "material": {
+    "type": "plywood",
+    "thickness_mm": 18
+  },
+  "constraints": {
+    "back_clearance_mm": 25
+  },
+  "access": {
+    "rear_service_hatch": true
+  },
+  "output_profile": "panel_saw",
+  "components": {
+    "speakers": {
+      "count": 2,
+      "enclosure_type": "sealed",
+      "external_mm": { "width_mm": 240, "height_mm": 400, "depth_mm": 300 },
+      "weight_kg": 8.5,
+      "clearance_mm": {
+        "left_mm": 10,
+        "right_mm": 10,
+        "top_mm": 10,
+        "bottom_mm": 10,
+        "front_mm": 10,
+        "rear_mm": 10
+      },
+      "isolation": { "strategy": "sorbothane_feet" }
+    },
+    "turntable": {
+      "external_mm": { "width_mm": 460, "height_mm": 160, "depth_mm": 380 },
+      "isolation": true,
+      "clearance_mm": {
+        "left_mm": 0,
+        "right_mm": 0,
+        "top_mm": 0,
+        "bottom_mm": 0,
+        "front_mm": 0,
+        "rear_mm": 0
+      }
+    },
+    "amplifier": {
+      "external_mm": { "width_mm": 430, "height_mm": 95, "depth_mm": 360 },
+      "ventilation_direction": "up",
+      "clearance_mm": {
+        "left_mm": 20,
+        "right_mm": 20,
+        "top_mm": 20,
+        "bottom_mm": 20,
+        "front_mm": 20,
+        "rear_mm": 20
+      }
+    },
+    "drawers": {
+      "count": 2,
+      "lp_capacity_target": 200
+    }
+  }
+}
+
