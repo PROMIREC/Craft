@@ -1,7 +1,8 @@
 import path from "node:path";
+import fs from "node:fs/promises";
 import { sha256Hex } from "@/pipeline/crypto";
 import { readRunMeta, writeRunMeta } from "@/pipeline/runMeta";
-import { assertValidProjectId, atomicWriteFile, ensureProjectLayout, projectRoot, sanitizeFileName } from "@/storage/fsStorage";
+import { assertValidProjectId, atomicWriteFile, ensureProjectLayout, projectRoot, safeJoin, sanitizeFileName } from "@/storage/fsStorage";
 
 export type CrgFormat = "glb" | "gltf" | "fbx" | "obj";
 
@@ -44,3 +45,21 @@ export async function ingestCrg(args: {
   return { ok: true };
 }
 
+export async function deleteCrg(args: { projectId: string }): Promise<{ ok: true }> {
+  assertValidProjectId(args.projectId);
+  await ensureProjectLayout(args.projectId);
+
+  const meta = await readRunMeta(args.projectId);
+  if (meta.crg) {
+    const filePath = safeJoin(projectRoot(args.projectId), "crg", meta.crg.original_filename);
+    await fs.rm(filePath, { force: true });
+  }
+
+  const now = new Date().toISOString();
+  meta.updated_at = now;
+  meta.crg = null;
+  meta.pspec.approval = { state: "none", revision: null, decided_at: null };
+  await writeRunMeta(args.projectId, meta);
+
+  return { ok: true };
+}

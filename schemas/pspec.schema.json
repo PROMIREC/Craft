@@ -89,7 +89,10 @@
       "allOf": [
         {
           "if": { "properties": { "type": { "const": "other" } }, "required": ["type"] },
-          "then": { "required": ["notes"] }
+          "then": {
+            "properties": { "notes": { "type": "string", "maxLength": 2000 } },
+            "required": ["notes"]
+          }
         }
       ]
     },
@@ -174,9 +177,9 @@
           },
           "allOf": [
             {
-              "if": { "properties": { "count": { "minimum": 1 } }, "required": ["count"] },
+              "if": { "properties": { "count": { "type": "integer", "minimum": 1 } }, "required": ["count"] },
               "then": {
-                "properties": { "lp_capacity_target": { "minimum": 1 } },
+                "properties": { "lp_capacity_target": { "type": "integer", "minimum": 1 } },
                 "required": ["lp_capacity_target"]
               }
             }
@@ -267,10 +270,12 @@
       "allOf": [
         {
           "if": { "properties": { "strategy": { "const": "other" } }, "required": ["strategy"] },
-          "then": { "required": ["notes"] }
+          "then": {
+            "properties": { "notes": { "type": "string", "maxLength": 2000 } },
+            "required": ["notes"]
+          }
         }
       ]
     }
   }
 }
-

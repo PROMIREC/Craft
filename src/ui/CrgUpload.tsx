@@ -43,6 +43,28 @@ export function CrgUpload({ projectId }: { projectId: string }) {
     }
   }
 
+  async function deleteCurrent() {
+    const current = meta?.crg?.original_filename;
+    if (!current) return;
+    const confirmed = window.confirm(`Delete current CRG?\n\n${current}\n\nThis removes the file from artifacts/${projectId}/crg.`);
+    if (!confirmed) return;
+
+    setBusy(true);
+    setError(null);
+    setOk(null);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/crg`, { method: "DELETE" });
+      const json = (await res.json()) as { ok?: boolean; error?: string };
+      if (!res.ok || !json.ok) throw new Error(json.error ?? "Delete failed");
+      setOk("Deleted.");
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Unknown error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div>
       <h1 className="h1">CRG Upload</h1>
@@ -58,8 +80,13 @@ export function CrgUpload({ projectId }: { projectId: string }) {
       </div>
 
       {meta?.crg ? (
-        <div className="alert" style={{ marginBottom: 12 }}>
-          <strong>Current CRG:</strong> {meta.crg.original_filename} ({meta.crg.bytes.toLocaleString()} bytes)
+        <div className="alert" style={{ marginBottom: 12, display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
+          <div>
+            <strong>Current CRG:</strong> {meta.crg.original_filename} ({meta.crg.bytes.toLocaleString()} bytes)
+          </div>
+          <button className="btn btnDanger" disabled={busy} onClick={() => void deleteCurrent()}>
+            Delete
+          </button>
         </div>
       ) : (
         <div className="alert" style={{ marginBottom: 12 }}>
@@ -98,4 +125,3 @@ export function CrgUpload({ projectId }: { projectId: string }) {
     </div>
   );
 }
-

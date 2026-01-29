@@ -17,6 +17,23 @@ type ConfirmResponse = {
   revision?: number;
 };
 
+async function readJsonResponse<T>(res: Response): Promise<T> {
+  const contentType = res.headers.get("content-type") ?? "";
+  const text = await res.text();
+  if (!contentType.includes("application/json")) {
+    const snippet = text.slice(0, 200).replace(/\s+/g, " ").trim();
+    throw new Error(
+      `Expected JSON but got ${contentType || "unknown"} (HTTP ${res.status}). ${snippet ? `Body: ${snippet}` : ""}`.trim()
+    );
+  }
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    const snippet = text.slice(0, 200).replace(/\s+/g, " ").trim();
+    throw new Error(`Server returned invalid JSON (HTTP ${res.status}). ${snippet ? `Body: ${snippet}` : ""}`.trim());
+  }
+}
+
 function getByPointer(obj: any, pointer: string): any {
   if (!pointer.startsWith("/")) return undefined;
   const parts = pointer.split("/").slice(1).map((p) => p.replace(/~1/g, "/").replace(/~0/g, "~"));
@@ -71,6 +88,7 @@ export function DibChat({ projectId }: { projectId: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<{ path: string; message: string }[]>([]);
+  const [activeQuestionId, setActiveQuestionId] = useState<string | null>(null);
 
   const applicableQuestions = useMemo(
     () => dibQuestionSetV0_1.questions.filter((q) => questionApplies(q, draft)),
@@ -82,14 +100,20 @@ export function DibChat({ projectId }: { projectId: string }) {
   }, [applicableQuestions, draft]);
 
   const currentIndex = firstUnansweredIndex === -1 ? applicableQuestions.length - 1 : firstUnansweredIndex;
-  const currentQuestion = applicableQuestions[currentIndex];
+  const activeIndex = useMemo(() => {
+    if (!activeQuestionId) return -1;
+    return applicableQuestions.findIndex((q) => q.id === activeQuestionId);
+  }, [activeQuestionId, applicableQuestions]);
+
+  const effectiveIndex = activeIndex >= 0 ? activeIndex : currentIndex;
+  const currentQuestion = applicableQuestions[effectiveIndex];
 
   useEffect(() => {
     let cancelled = false;
     async function load() {
       try {
         const res = await fetch(`/api/projects/${projectId}/dib/draft`);
-        const json = (await res.json()) as DraftResponse & { error?: string };
+        const json = await readJsonResponse<DraftResponse & { error?: string }>(res);
         if (!res.ok) throw new Error(json.error ?? "Failed to load DIB draft");
         if (!cancelled) setDraft(json.draft ?? {});
       } catch (e) {
@@ -108,7 +132,7 @@ export function DibChat({ projectId }: { projectId: string }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ draft: nextDraft })
     });
-    const json = (await res.json()) as { ok?: boolean; error?: string };
+    const json = await readJsonResponse<{ ok?: boolean; error?: string }>(res);
     if (!res.ok || !json.ok) throw new Error(json.error ?? "Failed to save draft");
   }
 
@@ -120,9 +144,10 @@ export function DibChat({ projectId }: { projectId: string }) {
     setDraft(nextDraft);
     try {
       await persist(nextDraft);
+      setActiveQuestionId(null);
       if (question.id === "confirm_dib_authoritative" && value === true) {
         const res = await fetch(`/api/projects/${projectId}/dib/confirm`, { method: "POST" });
-        const json = (await res.json()) as ConfirmResponse;
+        const json = await readJsonResponse<ConfirmResponse>(res);
         if (!res.ok || !json.ok) {
           setValidationErrors(json.errors ?? []);
           throw new Error(json.error ?? "DIB validation failed");
@@ -136,20 +161,10 @@ export function DibChat({ projectId }: { projectId: string }) {
     }
   }
 
-  function goTo(index: number) {
-    const q = applicableQuestions[index];
-    if (!q) return;
+  function goTo(questionId: string) {
     setValidationErrors([]);
     setError(null);
-    // If we "go back", clear current and later answers by removing values at their store paths.
-    let nextDraft: DibDraft = { ...(draft ?? {}) };
-    for (let i = index; i < applicableQuestions.length; i++) {
-      const qi = applicableQuestions[i]!;
-      if (getByPointer(nextDraft, qi.store_path) === undefined) continue;
-      nextDraft = setByPointer(nextDraft, qi.store_path, undefined);
-    }
-    setDraft(nextDraft);
-    void persist(nextDraft);
+    setActiveQuestionId(questionId);
   }
 
   return (
@@ -180,7 +195,7 @@ export function DibChat({ projectId }: { projectId: string }) {
 
       <div className="panel" style={{ padding: 14, marginBottom: 12 }}>
         <div className="mono" style={{ color: "var(--muted)", fontSize: 12, marginBottom: 8 }}>
-          Question {Math.min(currentIndex + 1, applicableQuestions.length)} of {applicableQuestions.length}
+          Question {Math.min(effectiveIndex + 1, applicableQuestions.length)} of {applicableQuestions.length}
         </div>
 
         {currentQuestion ? (
@@ -221,7 +236,7 @@ export function DibChat({ projectId }: { projectId: string }) {
                   className="panel"
                   style={{ textAlign: "left", cursor: busy ? "not-allowed" : "pointer" }}
                   onClick={() => {
-                    if (!busy) goTo(idx);
+                    if (!busy) goTo(q.id);
                   }}
                   disabled={busy}
                 >
@@ -267,24 +282,24 @@ function QuestionInput({
     );
   }
 
-  if (question.kind === "enum") {
-    return (
-      <div>
+	  if (question.kind === "enum") {
+	    return (
+	      <div>
         <select
           className="select"
           disabled={busy}
           value={text}
           onChange={(e) => setText(e.currentTarget.value)}
         >
-          <option value="" disabled>
-            Select…
-          </option>
-          {question.options.map((o) => (
-            <option key={o} value={o}>
-              {o}
-            </option>
-          ))}
-        </select>
+	          <option value="" disabled>
+	            Select…
+	          </option>
+	          {(question.options ?? []).map((o) => (
+	            <option key={o} value={o}>
+	              {o}
+	            </option>
+	          ))}
+	        </select>
         <div style={{ height: 10 }} />
         <div className="row">
           {question.default !== undefined ? (

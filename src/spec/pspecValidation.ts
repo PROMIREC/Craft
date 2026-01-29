@@ -1,4 +1,5 @@
-import Ajv from "ajv";
+import type { ValidateFunction } from "ajv";
+import Ajv2020 from "ajv/dist/2020";
 import addFormats from "ajv-formats";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -6,12 +7,11 @@ import type { PspecV0_1 } from "@/spec/pspecTypes";
 
 export type PspecValidationError = { message: string; instancePath: string };
 
-let validateFn: ((data: unknown) => boolean) | null = null;
-let validateErrors: any[] | null = null;
+let validateFn: ValidateFunction | null = null;
 
-async function getValidator(): Promise<(data: unknown) => boolean> {
+async function getValidator(): Promise<ValidateFunction> {
   if (validateFn) return validateFn;
-  const ajv = new Ajv({ allErrors: true, strict: true });
+  const ajv = new Ajv2020({ allErrors: true, strict: true });
   addFormats(ajv);
   const schemaPath = path.join(process.cwd(), "schemas", "pspec.schema.json");
   const schemaRaw = await fs.readFile(schemaPath, "utf8");
@@ -23,10 +23,8 @@ async function getValidator(): Promise<(data: unknown) => boolean> {
 export async function validatePspecAgainstSchema(pspec: unknown): Promise<PspecValidationError[]> {
   const v = await getValidator();
   const ok = v(pspec);
-  // @ts-expect-error ajv types
-  validateErrors = (v as any).errors ?? null;
   if (ok) return [];
-  return (validateErrors ?? []).map((e) => ({
+  return (v.errors ?? []).map((e) => ({
     message: String(e.message ?? "Invalid"),
     instancePath: String(e.instancePath ?? "")
   }));
@@ -68,4 +66,3 @@ export function validatePspecManufacturability(pspec: PspecV0_1): { ok: true } |
   if (errors.length) return { ok: false, errors };
   return { ok: true };
 }
-
