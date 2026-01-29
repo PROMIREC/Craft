@@ -39,6 +39,8 @@ export function ArtifactsView({ projectId }: { projectId: string }) {
   const pspecRevs =
     meta?.pspec.revisions?.map((r) => r.revision) ?? (meta?.pspec.latest_revision ? [meta.pspec.latest_revision] : []);
 
+  const revId = (r: number) => `rev-${String(r).padStart(4, "0")}`;
+
   return (
     <div>
       <h1 className="h1">Artifacts</h1>
@@ -67,6 +69,11 @@ export function ArtifactsView({ projectId }: { projectId: string }) {
           <a className="btn" href={`/api/projects/${projectId}/download?kind=pspec_summary_md`}>
             pspec.summary.md
           </a>
+          {meta?.pspec.latest_revision ? (
+            <a className="btn" href={`/projects/${projectId}/revisions/${revId(meta.pspec.latest_revision)}/onshape`}>
+              Onshape preview
+            </a>
+          ) : null}
           <a className="btn" href={`/api/projects/${projectId}/download?kind=run_json`}>
             meta/run.json
           </a>
@@ -111,6 +118,11 @@ export function ArtifactsView({ projectId }: { projectId: string }) {
                   summary rev-{String(r).padStart(4, "0")}
                 </a>
               ))}
+              {pspecRevs.map((r) => (
+                <a key={`onshape-${r}`} className="btn" href={`/projects/${projectId}/revisions/${revId(r)}/onshape`}>
+                  onshape rev-{String(r).padStart(4, "0")}
+                </a>
+              ))}
             </div>
           ) : (
             <div className="alert">No PSPEC revisions yet.</div>
@@ -125,4 +137,3 @@ export function ArtifactsView({ projectId }: { projectId: string }) {
     </div>
   );
 }
-

@@ -38,3 +38,23 @@ export async function readLatestPspecSummary(projectId: string): Promise<string 
   return fs.readFile(p, "utf8");
 }
 
+export function pspecRevisionPath(projectId: string, revision: number): string {
+  return path.join(pspecRevisionDir(projectId, revision), "pspec.json");
+}
+
+export function pspecSummaryRevisionPath(projectId: string, revision: number): string {
+  return path.join(pspecRevisionDir(projectId, revision), "pspec.summary.md");
+}
+
+export async function readPspecRevision(projectId: string, revision: number): Promise<PspecV0_1 | null> {
+  const p = pspecRevisionPath(projectId, revision);
+  if (!(await exists(p))) return null;
+  return readJson<PspecV0_1>(p);
+}
+
+export async function readPspecSummaryRevision(projectId: string, revision: number): Promise<string | null> {
+  const p = pspecSummaryRevisionPath(projectId, revision);
+  if (!(await exists(p))) return null;
+  const fs = await import("node:fs/promises");
+  return fs.readFile(p, "utf8");
+}

@@ -7,6 +7,7 @@ import { stableStringify } from "@/pipeline/stableJson";
 import { generatePspecV0_1, pspecSummaryMarkdown } from "@/spec/generatePspec";
 import { validatePspecAgainstSchema, validatePspecManufacturability } from "@/spec/pspecValidation";
 import { writePspecRevision } from "@/spec/pspecStorage";
+import { mapPspecToOnshapeVariables, writeOnshapeMappingArtifacts } from "@/cad/onshapeMapping";
 
 export const runtime = "nodejs";
 
@@ -52,11 +53,20 @@ export async function POST(_req: Request, ctx: { params: { projectId: string } }
       );
     }
 
+    const mapping = mapPspecToOnshapeVariables(pspec, pspec.output_profile);
+    if (!mapping.ok) {
+      return NextResponse.json(
+        { ok: false, error: "Onshape variables mapping failed.", errors: mapping.errors },
+        { status: 400 }
+      );
+    }
+
     const summaryMd = pspecSummaryMarkdown(pspec);
     const pspecSha = sha256Hex(new TextEncoder().encode(stableStringify(pspec)));
     const summarySha = sha256Hex(new TextEncoder().encode(summaryMd));
 
     await writePspecRevision(projectId, revision, pspec, summaryMd);
+    await writeOnshapeMappingArtifacts({ projectId, revision, variables: mapping.variables, provenance: mapping.provenance });
 
     meta.updated_at = now;
     meta.pspec.latest_revision = revision;
