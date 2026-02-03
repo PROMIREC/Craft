@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { CrgViewer } from "@/ui/CrgViewer";
 
 type RunMeta = {
   project_id: string;
@@ -105,6 +106,13 @@ export function CrgUpload({ projectId }: { projectId: string }) {
         </div>
       ) : null}
 
+      {meta?.crg ? (
+        <div className="panel" style={{ padding: 14, marginBottom: 12 }}>
+          <div style={{ fontWeight: 700, marginBottom: 8 }}>CRG viewer</div>
+          <CrgViewer projectId={projectId} fileName={meta.crg.original_filename} uploadedAt={meta.crg.uploaded_at} />
+        </div>
+      ) : null}
+
       <div className="panel" style={{ padding: 14 }}>
         <label className="label">Choose a CRG file</label>
         <input
@@ -117,10 +125,11 @@ export function CrgUpload({ projectId }: { projectId: string }) {
             if (f) void upload(f);
           }}
         />
-        <div style={{ height: 10 }} />
-        <a className="btn" href={`/projects/${projectId}`}>
-          Back to Project
-        </a>
+        <div className="sectionTopGap">
+          <a className="btn" href={`/projects/${projectId}`}>
+            Back to Project
+          </a>
+        </div>
       </div>
     </div>
   );

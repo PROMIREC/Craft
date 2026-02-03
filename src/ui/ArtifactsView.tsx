@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type RunMeta = {
   project_id: string;
@@ -16,6 +16,8 @@ type RunMeta = {
 export function ArtifactsView({ projectId }: { projectId: string }) {
   const [meta, setMeta] = useState<RunMeta | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [selectedDibRev, setSelectedDibRev] = useState<number | null>(null);
+  const [selectedPspecRev, setSelectedPspecRev] = useState<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -35,9 +37,36 @@ export function ArtifactsView({ projectId }: { projectId: string }) {
     };
   }, [projectId]);
 
-  const dibRevs = meta?.dib.revisions?.map((r) => r.revision) ?? (meta?.dib.latest_revision ? [meta.dib.latest_revision] : []);
-  const pspecRevs =
-    meta?.pspec.revisions?.map((r) => r.revision) ?? (meta?.pspec.latest_revision ? [meta.pspec.latest_revision] : []);
+  const dibRevs = useMemo(
+    () =>
+      (meta?.dib.revisions?.map((r) => r.revision) ?? (meta?.dib.latest_revision ? [meta.dib.latest_revision] : []))
+        .slice()
+        .sort((a, b) => b - a),
+    [meta]
+  );
+  const pspecRevs = useMemo(
+    () =>
+      (meta?.pspec.revisions?.map((r) => r.revision) ?? (meta?.pspec.latest_revision ? [meta.pspec.latest_revision] : []))
+        .slice()
+        .sort((a, b) => b - a),
+    [meta]
+  );
+
+  useEffect(() => {
+    if (!dibRevs.length) {
+      setSelectedDibRev(null);
+      return;
+    }
+    setSelectedDibRev((prev) => (prev && dibRevs.includes(prev) ? prev : dibRevs[0]));
+  }, [dibRevs]);
+
+  useEffect(() => {
+    if (!pspecRevs.length) {
+      setSelectedPspecRev(null);
+      return;
+    }
+    setSelectedPspecRev((prev) => (prev && pspecRevs.includes(prev) ? prev : pspecRevs[0]));
+  }, [pspecRevs]);
 
   const revId = (r: number) => `rev-${String(r).padStart(4, "0")}`;
 
@@ -87,13 +116,23 @@ export function ArtifactsView({ projectId }: { projectId: string }) {
       <div className="grid">
         <div className="panel">
           <div style={{ fontWeight: 700, marginBottom: 8 }}>DIB revisions</div>
-          {dibRevs.length ? (
+          {dibRevs.length && selectedDibRev ? (
             <div className="row">
-              {dibRevs.map((r) => (
-                <a key={r} className="btn" href={`/api/projects/${projectId}/download?kind=dib_json&rev=${r}`}>
-                  rev-{String(r).padStart(4, "0")}
-                </a>
-              ))}
+              <select
+                className="select"
+                style={{ width: "auto", minWidth: 180 }}
+                value={selectedDibRev}
+                onChange={(e) => setSelectedDibRev(Number(e.target.value))}
+              >
+                {dibRevs.map((r) => (
+                  <option key={r} value={r}>
+                    rev-{String(r).padStart(4, "0")}
+                  </option>
+                ))}
+              </select>
+              <a className="btn" href={`/api/projects/${projectId}/download?kind=dib_json&rev=${selectedDibRev}`}>
+                Download dib.json
+              </a>
             </div>
           ) : (
             <div className="alert">No DIB revisions yet.</div>
@@ -102,27 +141,29 @@ export function ArtifactsView({ projectId }: { projectId: string }) {
 
         <div className="panel">
           <div style={{ fontWeight: 700, marginBottom: 8 }}>PSPEC revisions</div>
-          {pspecRevs.length ? (
+          {pspecRevs.length && selectedPspecRev ? (
             <div className="row">
-              {pspecRevs.map((r) => (
-                <a key={r} className="btn" href={`/api/projects/${projectId}/download?kind=pspec_json&rev=${r}`}>
-                  pspec rev-{String(r).padStart(4, "0")}
-                </a>
-              ))}
-              {pspecRevs.map((r) => (
-                <a
-                  key={`md-${r}`}
-                  className="btn"
-                  href={`/api/projects/${projectId}/download?kind=pspec_summary_md&rev=${r}`}
-                >
-                  summary rev-{String(r).padStart(4, "0")}
-                </a>
-              ))}
-              {pspecRevs.map((r) => (
-                <a key={`onshape-${r}`} className="btn" href={`/projects/${projectId}/revisions/${revId(r)}/onshape`}>
-                  onshape rev-{String(r).padStart(4, "0")}
-                </a>
-              ))}
+              <select
+                className="select"
+                style={{ width: "auto", minWidth: 180 }}
+                value={selectedPspecRev}
+                onChange={(e) => setSelectedPspecRev(Number(e.target.value))}
+              >
+                {pspecRevs.map((r) => (
+                  <option key={r} value={r}>
+                    rev-{String(r).padStart(4, "0")}
+                  </option>
+                ))}
+              </select>
+              <a className="btn" href={`/api/projects/${projectId}/download?kind=pspec_json&rev=${selectedPspecRev}`}>
+                Download pspec.json
+              </a>
+              <a className="btn" href={`/api/projects/${projectId}/download?kind=pspec_summary_md&rev=${selectedPspecRev}`}>
+                Download summary
+              </a>
+              <a className="btn" href={`/projects/${projectId}/revisions/${revId(selectedPspecRev)}/onshape`}>
+                Open Onshape preview
+              </a>
             </div>
           ) : (
             <div className="alert">No PSPEC revisions yet.</div>
@@ -130,10 +171,11 @@ export function ArtifactsView({ projectId }: { projectId: string }) {
         </div>
       </div>
 
-      <div style={{ height: 12 }} />
-      <a className="btn" href={`/projects/${projectId}`}>
-        Back to Project
-      </a>
+      <div className="sectionTopGap">
+        <a className="btn" href={`/projects/${projectId}`}>
+          Back to Project
+        </a>
+      </div>
     </div>
   );
 }

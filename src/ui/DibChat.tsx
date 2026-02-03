@@ -213,7 +213,7 @@ export function DibChat({ projectId }: { projectId: string }) {
           </div>
         )}
 
-        <div className="row" style={{ justifyContent: "space-between" }}>
+        <div className="row sectionTopGap" style={{ justifyContent: "space-between" }}>
           <a className="btn" href={`/projects/${projectId}`}>
             Back to Project
           </a>
