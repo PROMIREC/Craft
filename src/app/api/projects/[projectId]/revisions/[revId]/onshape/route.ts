@@ -9,8 +9,10 @@ import {
   writeOnshapeMappingArtifacts,
   type OnshapeVariableProvenance
 } from "@/cad/onshapeMapping";
+import { readOnshapeRunRecord } from "@/cad/onshapeOps";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 function parseRevisionId(revId: string): number {
   const m = /^rev-(\d{4})$/.exec(revId);
@@ -63,6 +65,8 @@ export async function GET(_req: Request, ctx: { params: { projectId: string; rev
     const meta = await readRunMeta(projectId);
     const entry = meta.pspec.revisions.find((r) => r.revision === revision);
     const approval = entry?.approval?.state ?? "unknown";
+    const run = await readOnshapeRunRecord(projectId, revision);
+    const canGenerate = approval === "approved" && Object.keys(variables).length > 0;
 
     return NextResponse.json({
       ok: true,
@@ -70,13 +74,14 @@ export async function GET(_req: Request, ctx: { params: { projectId: string; rev
       revision,
       rev_id: revId,
       approval,
+      can_generate: canGenerate,
       output_profile: pspec.output_profile,
       pspec_summary_md: summary,
       variables,
-      provenance
+      provenance,
+      run
     });
   } catch (e) {
     return NextResponse.json({ ok: false, error: e instanceof Error ? e.message : "Unknown error" }, { status: 400 });
   }
 }
-

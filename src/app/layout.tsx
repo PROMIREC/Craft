@@ -24,6 +24,9 @@ export default function RootLayout({
               <a className="kbd" href="/projects/new">
                 New Project
               </a>
+              <a className="kbd" href="/settings">
+                Settings
+              </a>
             </div>
           </div>
           <div style={{ height: 16 }} />
@@ -33,4 +36,3 @@ export default function RootLayout({
     </html>
   );
 }
-

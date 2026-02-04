@@ -9,6 +9,16 @@ Prereqs: Node.js 18+.
 2. Run dev server: `npm run dev`
 3. Open: `http://localhost:3000`
 
+For Onshape generation, set these in `.env.local`:
+- `ONSHAPE_CLIENT_ID`
+- `ONSHAPE_CLIENT_SECRET`
+- `ONSHAPE_REDIRECT_URI`
+- `ONSHAPE_OAUTH_BASE`
+- `ONSHAPE_API_BASE`
+- `ONSHAPE_TEMPLATE_DID`
+- `ONSHAPE_TEMPLATE_WID`
+- `ONSHAPE_TEMPLATE_EID`
+
 ## Artifact lineage
 Every project persists artifacts under `artifacts/<project_id>/`:
 - `crg/` (uploaded reference geometry; non-authoritative)
@@ -18,4 +28,3 @@ Every project persists artifacts under `artifacts/<project_id>/`:
 
 ## Architecture (non-negotiable)
 See `docs/architecture.md`.
-

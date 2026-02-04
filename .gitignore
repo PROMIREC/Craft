@@ -6,7 +6,8 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 *.tsbuildinfo
+.env.local
 
-# Runtime outputs
+# Runtime outputs (includes local OAuth state/tokens under artifacts/_auth/)
 artifacts/*
 !artifacts/.gitkeep
