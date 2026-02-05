@@ -32,6 +32,48 @@ export type OnshapeRunRecord = {
   errors: OnshapeRunError[];
 };
 
+export type OnshapeExportError = {
+  step:
+    | "config"
+    | "validate_run"
+    | "resolve_elements"
+    | "partstudio_step"
+    | "drawing_pdf"
+    | "download"
+    | "write_file";
+  message: string;
+};
+
+export type OnshapeExportRecord = {
+  status: "SUCCESS" | "FAILED";
+  timestamp: string;
+  source: {
+    did: string | null;
+    wid: string | null;
+    eid: string | null;
+    onshapeUrl: string | null;
+  };
+  exports: {
+    partstudio_step: {
+      elementId: string | null;
+      elementName: string | null;
+      translationId: string | null;
+      resultElementId: string | null;
+      fileName: string | null;
+      bytes: number;
+    } | null;
+    drawing_pdf: {
+      elementId: string | null;
+      elementName: string | null;
+      translationId: string | null;
+      resultElementId: string | null;
+      fileName: string | null;
+      bytes: number;
+    } | null;
+  };
+  errors: OnshapeExportError[];
+};
+
 type VariableUnit = "mm" | "count" | "flag" | "enum";
 
 type OnshapeElement = {
@@ -85,6 +127,16 @@ function normalizeName(name: string): string {
 
 function normalizeElementType(value: string): string {
   return value.trim().toUpperCase();
+}
+
+function selectVariableStudioElement(elements: OnshapeElement[]): OnshapeElement | null {
+  const vars = elements.filter((e) => {
+    const t = normalizeElementType(e.elementType);
+    return t.includes("VARIABLE") || t.includes("VARSTUDIO");
+  });
+  if (!vars.length) return null;
+  vars.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+  return vars[0];
 }
 
 function extractString(value: unknown, pathParts: string[]): string | null {
@@ -146,23 +198,105 @@ function parseElements(value: unknown): OnshapeElement[] {
 }
 
 function parseVariables(value: unknown): OnshapeVariable[] {
+  function fromObject(obj: Record<string, unknown>): unknown[] {
+    for (const key of ["variables", "items", "rows", "data"] as const) {
+      const direct = obj[key];
+      if (Array.isArray(direct)) return direct;
+    }
+    for (const key of ["variableTable", "table", "result", "payload", "data"] as const) {
+      const nested = obj[key];
+      if (!nested || typeof nested !== "object") continue;
+      const nestedRec = nested as Record<string, unknown>;
+      for (const subKey of ["variables", "items", "rows", "data"] as const) {
+        const arr = nestedRec[subKey];
+        if (Array.isArray(arr)) return arr;
+      }
+    }
+    return [];
+  }
+
+  function parseName(entry: unknown): string | null {
+    if (typeof entry === "string") return entry.trim() || null;
+    if (Array.isArray(entry)) {
+      const first = entry[0];
+      if (typeof first === "string") return first.trim() || null;
+      return null;
+    }
+    if (!entry || typeof entry !== "object") return null;
+    const rec = entry as Record<string, unknown>;
+    const direct =
+      (typeof rec.name === "string" && rec.name) ||
+      (typeof rec.variableName === "string" && rec.variableName) ||
+      (typeof rec.varName === "string" && rec.varName) ||
+      (typeof rec.variable === "string" && rec.variable) ||
+      (typeof rec.var === "string" && rec.var) ||
+      "";
+    if (direct) return direct;
+    const nestedVar = rec.variable;
+    if (nestedVar && typeof nestedVar === "object") {
+      const nv = nestedVar as Record<string, unknown>;
+      const nested =
+        (typeof nv.name === "string" && nv.name) ||
+        (typeof nv.variableName === "string" && nv.variableName) ||
+        (typeof nv.varName === "string" && nv.varName) ||
+        "";
+      if (nested) return nested;
+    }
+    return null;
+  }
+
+  function parseType(entry: unknown): string | undefined {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return undefined;
+    const rec = entry as Record<string, unknown>;
+    return (
+      (typeof rec.type === "string" && rec.type) ||
+      (typeof rec.variableType === "string" && rec.variableType) ||
+      (typeof rec.valueType === "string" && rec.valueType) ||
+      undefined
+    );
+  }
+
+  function parseDescription(entry: unknown): string | undefined {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return undefined;
+    const rec = entry as Record<string, unknown>;
+    return (
+      (typeof rec.description === "string" && rec.description) ||
+      (typeof rec.comment === "string" && rec.comment) ||
+      undefined
+    );
+  }
+
   const rawList = Array.isArray(value)
     ? value
-    : value && typeof value === "object" && Array.isArray((value as any).variables)
-      ? ((value as any).variables as unknown[])
+    : value && typeof value === "object"
+      ? fromObject(value as Record<string, unknown>)
       : [];
 
   const out: OnshapeVariable[] = [];
   for (const entry of rawList) {
-    if (!entry || typeof entry !== "object") continue;
-    const rec = entry as Record<string, unknown>;
-    const name = typeof rec.name === "string" ? rec.name : "";
-    if (!name) continue;
-    const type = typeof rec.type === "string" ? rec.type : undefined;
-    const description = typeof rec.description === "string" ? rec.description : undefined;
-    out.push({ name, type, description });
+    const name = parseName(entry);
+    if (name) {
+      out.push({ name, type: parseType(entry), description: parseDescription(entry) });
+      continue;
+    }
+    // Some responses wrap the table rows; unwrap a level if present.
+    if (entry && typeof entry === "object" && !Array.isArray(entry)) {
+      const nested = fromObject(entry as Record<string, unknown>);
+      for (const inner of nested) {
+        const innerName = parseName(inner);
+        if (!innerName) continue;
+        out.push({ name: innerName, type: parseType(inner), description: parseDescription(inner) });
+      }
+    }
   }
-  return out;
+
+  // Deduplicate by normalized name to make missing-variable checks stable.
+  const dedup = new Map<string, OnshapeVariable>();
+  for (const v of out) {
+    const key = v.name;
+    if (!dedup.has(key)) dedup.set(key, v);
+  }
+  return [...dedup.values()];
 }
 
 function buildOnshapeDocumentUrl(did: string, wid: string, eid: string): string {
@@ -249,7 +383,9 @@ async function postCopyWorkspace(
   template: OnshapeTemplateRef,
   newName: string
 ): Promise<{ did: string; wid: string }> {
-  const payload = { newName };
+  // Onshape Free accounts can only create public documents. Copy-workspace defaults to private unless
+  // explicitly set, which produces the "Free accounts only allow access to public documents" error.
+  const payload = { newName, isPublic: true };
 
   const { data } = await requestJsonFallback<unknown>(client, "POST", [
     `/api/v10/documents/${template.did}/workspaces/${template.wid}/copy`,
@@ -440,14 +576,48 @@ async function readTemplateVariables(
   wid: string,
   eid: string
 ): Promise<{ path: string; variables: OnshapeVariable[] }> {
-  const { path, data } = await requestJsonFallback<unknown>(client, "GET", [
+  const candidates = [
     `/api/v10/variables/d/${did}/w/${wid}/e/${eid}/variables`,
     `/api/v9/variables/d/${did}/w/${wid}/e/${eid}/variables`,
-    `/api/variables/d/${did}/w/${wid}/e/${eid}/variables`
-  ]);
-  const variables = parseVariables(data);
-  if (!variables.length) throw new Error("Template exposes no editable variables via Onshape API.");
-  return { path, variables };
+    `/api/v10/variables/d/${did}/w/${wid}/e/${eid}`,
+    `/api/v9/variables/d/${did}/w/${wid}/e/${eid}`,
+    `/api/variables/d/${did}/w/${wid}/e/${eid}/variables`,
+    `/api/v10/partstudios/d/${did}/w/${wid}/e/${eid}/variables`,
+    `/api/v9/partstudios/d/${did}/w/${wid}/e/${eid}/variables`,
+    `/api/partstudios/d/${did}/w/${wid}/e/${eid}/variables`
+  ];
+
+  let lastDetails = "";
+  for (const path of candidates) {
+    try {
+      const data = await client.requestJson<unknown>("GET", path);
+      const variables = parseVariables(data);
+      if (variables.length) return { path, variables };
+
+      const shape = Array.isArray(data)
+        ? `array(len=${data.length})`
+        : data && typeof data === "object"
+          ? `object(keys=${Object.keys(data as any).slice(0, 6).join(",") || "none"})`
+          : typeof data;
+      let first = "";
+      if (Array.isArray(data) && data.length) {
+        const v0 = data[0] as any;
+        if (typeof v0 === "string") first = `first=string`;
+        else if (Array.isArray(v0)) first = `first=array(len=${v0.length})`;
+        else if (v0 && typeof v0 === "object") first = `firstKeys=${Object.keys(v0).slice(0, 6).join(",") || "none"}`;
+        else first = `first=${typeof v0}`;
+      }
+      lastDetails = `GET ${path} -> ${shape}${first ? `; ${first}` : ""}`;
+      continue;
+    } catch (e) {
+      if (e instanceof OnshapeApiError && (e.status === 404 || e.status === 405)) continue;
+      throw e;
+    }
+  }
+
+  throw new Error(
+    `Template exposes no editable variables via Onshape API (tried ${candidates.length} endpoints; last: ${lastDetails || "none"}).`
+  );
 }
 
 async function postVariablesPayload(
@@ -511,7 +681,17 @@ export async function applyVariables(args: {
     };
   });
 
-  const pathCandidates = [listed.path, `/api/v10/variables/d/${args.did}/w/${args.wid}/e/${args.eid}/variables`, `/api/v9/variables/d/${args.did}/w/${args.wid}/e/${args.eid}/variables`, `/api/variables/d/${args.did}/w/${args.wid}/e/${args.eid}/variables`].filter(
+  const pathCandidates = [
+    listed.path,
+    `/api/v10/variables/d/${args.did}/w/${args.wid}/e/${args.eid}/variables`,
+    `/api/v9/variables/d/${args.did}/w/${args.wid}/e/${args.eid}/variables`,
+    `/api/v10/variables/d/${args.did}/w/${args.wid}/e/${args.eid}`,
+    `/api/v9/variables/d/${args.did}/w/${args.wid}/e/${args.eid}`,
+    `/api/variables/d/${args.did}/w/${args.wid}/e/${args.eid}/variables`,
+    `/api/v10/partstudios/d/${args.did}/w/${args.wid}/e/${args.eid}/variables`,
+    `/api/v9/partstudios/d/${args.did}/w/${args.wid}/e/${args.eid}/variables`,
+    `/api/partstudios/d/${args.did}/w/${args.wid}/e/${args.eid}/variables`
+  ].filter(
     (value, index, arr) => arr.indexOf(value) === index
   );
   await postVariablesPayload(client, pathCandidates, payload);
@@ -599,10 +779,14 @@ export async function generateOnshapeRunForRevision(args: {
     run.onshapeUrl = cloned.onshapeUrl;
 
     step = "apply_variables";
+    const applyClient = new OnshapeClient();
+    const createdElements = await fetchElements(applyClient, cloned.did, cloned.wid);
+    const variableStudio = selectVariableStudioElement(createdElements);
+    const variablesTargetEid = variableStudio?.id ?? cloned.eid;
     const applied = await applyVariables({
       did: cloned.did,
       wid: cloned.wid,
-      eid: cloned.eid,
+      eid: variablesTargetEid,
       variablesMap: variables.variablesMap,
       unitsByVar: variables.unitsByVar
     });
@@ -623,5 +807,406 @@ export async function generateOnshapeRunForRevision(args: {
     }
     await writeOnshapeRunRecord(args.projectId, args.revision, run);
     return { run, reused: false };
+  }
+}
+
+type GenerateOnshapeExportResult = {
+  export: OnshapeExportRecord;
+  reused: boolean;
+};
+
+type TranslationStatus = {
+  requestState?: string;
+  resultElementIds?: string[];
+  failureReason?: string;
+};
+
+type DrawingFormat = {
+  name: string;
+  description?: string;
+  type?: string;
+};
+
+function exportRecordBase(): OnshapeExportRecord {
+  return {
+    status: "FAILED",
+    timestamp: new Date().toISOString(),
+    source: { did: null, wid: null, eid: null, onshapeUrl: null },
+    exports: {
+      partstudio_step: {
+        elementId: null,
+        elementName: null,
+        translationId: null,
+        resultElementId: null,
+        fileName: null,
+        bytes: 0
+      },
+      drawing_pdf: {
+        elementId: null,
+        elementName: null,
+        translationId: null,
+        resultElementId: null,
+        fileName: null,
+        bytes: 0
+      }
+    },
+    errors: []
+  };
+}
+
+function sanitizeSlug(value: string): string {
+  const ascii = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+  return ascii.slice(0, 60);
+}
+
+function exportDirForRevision(projectId: string, revision: number): string {
+  return path.join(onshapeCadDirForRevision(projectId, revision), "exports");
+}
+
+export function onshapeExportPath(projectId: string, revision: number): string {
+  return path.join(onshapeCadDirForRevision(projectId, revision), "onshape.export.json");
+}
+
+function onshapeExportArchivePath(projectId: string, revision: number, timestampIso: string): string {
+  const safeTs = timestampIso.replace(/[:.]/g, "-");
+  return path.join(onshapeCadDirForRevision(projectId, revision), `onshape.export.${safeTs}.json`);
+}
+
+function parseOnshapeExportRecord(value: unknown): OnshapeExportRecord {
+  if (!value || typeof value !== "object") throw new Error("Invalid onshape.export.json format.");
+  const rec = value as Record<string, unknown>;
+  const status = rec.status === "SUCCESS" || rec.status === "FAILED" ? rec.status : null;
+  const timestamp = typeof rec.timestamp === "string" ? rec.timestamp : null;
+  if (!status || !timestamp) throw new Error("Invalid onshape.export.json format.");
+  return rec as OnshapeExportRecord;
+}
+
+export async function readOnshapeExportRecord(projectId: string, revision: number): Promise<OnshapeExportRecord | null> {
+  const p = onshapeExportPath(projectId, revision);
+  if (!(await exists(p))) return null;
+  return parseOnshapeExportRecord(await readJson<unknown>(p));
+}
+
+async function writeOnshapeExportRecord(projectId: string, revision: number, record: OnshapeExportRecord): Promise<void> {
+  await atomicWriteFile(onshapeExportPath(projectId, revision), stableStringify(record));
+}
+
+async function archiveExportRecordIfPresent(projectId: string, revision: number): Promise<void> {
+  const latestPath = onshapeExportPath(projectId, revision);
+  if (!(await exists(latestPath))) return;
+  const existing = await readJson<unknown>(latestPath);
+  const record = parseOnshapeExportRecord(existing);
+  await atomicWriteFile(onshapeExportArchivePath(projectId, revision, new Date().toISOString()), stableStringify(record));
+}
+
+async function fetchDrawingFormats(
+  client: OnshapeClient,
+  did: string,
+  wid: string,
+  eid: string
+): Promise<DrawingFormat[]> {
+  const { data } = await requestJsonFallback<unknown>(client, "GET", [
+    `/api/v10/drawings/d/${did}/w/${wid}/e/${eid}/translationformats`,
+    `/api/v9/drawings/d/${did}/w/${wid}/e/${eid}/translationformats`,
+    `/api/v6/drawings/d/${did}/w/${wid}/e/${eid}/translationformats`
+  ]);
+  const rawList = Array.isArray(data)
+    ? data
+    : data && typeof data === "object" && Array.isArray((data as any).formats)
+      ? ((data as any).formats as unknown[])
+      : data && typeof data === "object" && Array.isArray((data as any).items)
+        ? ((data as any).items as unknown[])
+        : [];
+  const out: DrawingFormat[] = [];
+  for (const entry of rawList) {
+    if (!entry || typeof entry !== "object") continue;
+    const rec = entry as Record<string, unknown>;
+    const name = typeof rec.name === "string" ? rec.name : "";
+    if (!name) continue;
+    out.push({
+      name,
+      description: typeof rec.description === "string" ? rec.description : undefined,
+      type: typeof rec.type === "string" ? rec.type : undefined
+    });
+  }
+  return out;
+}
+
+function pickPdfFormat(formats: DrawingFormat[]): DrawingFormat | null {
+  const pdf = formats.filter((f) => f.name.toUpperCase().includes("PDF"));
+  if (!pdf.length) return null;
+  pdf.sort((a, b) => a.name.localeCompare(b.name));
+  return pdf[0];
+}
+
+function parseTranslationId(payload: unknown): string {
+  if (!payload || typeof payload !== "object") throw new Error("Invalid Onshape translation response.");
+  const rec = payload as Record<string, unknown>;
+  const id =
+    (typeof rec.id === "string" && rec.id) ||
+    (typeof rec.translationId === "string" && rec.translationId) ||
+    (typeof rec.requestId === "string" && rec.requestId) ||
+    "";
+  if (!id) throw new Error("Onshape translation response missing id.");
+  return id;
+}
+
+function parseTranslationStatus(payload: unknown): TranslationStatus {
+  if (!payload || typeof payload !== "object") return {};
+  const rec = payload as Record<string, unknown>;
+  const requestState = typeof rec.requestState === "string" ? rec.requestState : undefined;
+  const failureReason = typeof rec.failureReason === "string" ? rec.failureReason : undefined;
+  const resultElementIds = Array.isArray(rec.resultElementIds)
+    ? rec.resultElementIds.filter((id) => typeof id === "string")
+    : undefined;
+  return { requestState, resultElementIds, failureReason };
+}
+
+async function pollTranslation(client: OnshapeClient, translationId: string): Promise<string> {
+  const pollPaths = [
+    `/api/v10/translations/${translationId}`,
+    `/api/v9/translations/${translationId}`,
+    `/api/v6/translations/${translationId}`,
+    `/api/translations/${translationId}`
+  ];
+
+  const delays = [500, 1000, 1500, 2500, 4000, 6000, 8000];
+  let lastState: TranslationStatus = {};
+
+  for (const delay of delays) {
+    const { data } = await requestJsonFallback<unknown>(client, "GET", pollPaths);
+    const status = parseTranslationStatus(data);
+    lastState = status;
+    const state = (status.requestState ?? "").toUpperCase();
+    if (state === "DONE") {
+      const result = status.resultElementIds?.[0];
+      if (!result) throw new Error("Translation finished without a result element id.");
+      return result;
+    }
+    if (state === "FAILED" || state === "FAILURE") {
+      throw new Error(status.failureReason ? `Translation failed: ${status.failureReason}` : "Translation failed.");
+    }
+    await new Promise((resolve) => setTimeout(resolve, delay));
+  }
+
+  const finalState = (lastState.requestState ?? "").toUpperCase();
+  throw new Error(finalState ? `Translation timed out (state=${finalState}).` : "Translation timed out.");
+}
+
+async function requestBinary(
+  client: OnshapeClient,
+  paths: string[]
+): Promise<Response> {
+  let lastError: unknown = null;
+  for (const path of paths) {
+    try {
+      return await client.request("GET", path, { headers: { Accept: "application/octet-stream" } });
+    } catch (e) {
+      lastError = e;
+      if (e instanceof OnshapeApiError && (e.status === 404 || e.status === 405)) continue;
+      throw e;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("Onshape download failed.");
+}
+
+function parseContentDispositionFileName(value: string | null): string | null {
+  if (!value) return null;
+  const match = /filename\*=UTF-8''([^;]+)|filename=\"?([^\";]+)\"?/i.exec(value);
+  const raw = match ? (match[1] ?? match[2]) : null;
+  if (!raw) return null;
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
+async function downloadBlobElement(
+  client: OnshapeClient,
+  did: string,
+  wid: string,
+  eid: string
+): Promise<{ bytes: Uint8Array; fileNameFromHeader: string | null }> {
+  const res = await requestBinary(client, [
+    `/api/v10/blobelements/d/${did}/w/${wid}/e/${eid}`,
+    `/api/v9/blobelements/d/${did}/w/${wid}/e/${eid}`,
+    `/api/v6/blobelements/d/${did}/w/${wid}/e/${eid}`,
+    `/api/blobelements/d/${did}/w/${wid}/e/${eid}`
+  ]);
+  const buffer = new Uint8Array(await res.arrayBuffer());
+  const fileName = parseContentDispositionFileName(res.headers.get("content-disposition"));
+  return { bytes: buffer, fileNameFromHeader: fileName };
+}
+
+async function exportPartStudioStep(args: {
+  did: string;
+  wid: string;
+  eid: string;
+}): Promise<{ translationId: string; resultElementId: string }> {
+  const client = new OnshapeClient();
+  const { data } = await requestJsonFallback<unknown>(client, "POST", [
+    `/api/v10/partstudios/d/${args.did}/w/${args.wid}/e/${args.eid}/export/step`,
+    `/api/v9/partstudios/d/${args.did}/w/${args.wid}/e/${args.eid}/export/step`,
+    `/api/v6/partstudios/d/${args.did}/w/${args.wid}/e/${args.eid}/export/step`
+  ], {
+    body: { storeInDocument: true }
+  });
+  const translationId = parseTranslationId(data);
+  const resultElementId = await pollTranslation(client, translationId);
+  return { translationId, resultElementId };
+}
+
+async function exportDrawingPdf(args: {
+  did: string;
+  wid: string;
+  eid: string;
+}): Promise<{ translationId: string; resultElementId: string; formatName: string }> {
+  const client = new OnshapeClient();
+  const formats = await fetchDrawingFormats(client, args.did, args.wid, args.eid);
+  const pdf = pickPdfFormat(formats);
+  if (!pdf) throw new Error("No PDF translation format available for drawing.");
+
+  const { data } = await requestJsonFallback<unknown>(client, "POST", [
+    `/api/v10/drawings/d/${args.did}/w/${args.wid}/e/${args.eid}/translations`,
+    `/api/v9/drawings/d/${args.did}/w/${args.wid}/e/${args.eid}/translations`,
+    `/api/v6/drawings/d/${args.did}/w/${args.wid}/e/${args.eid}/translations`
+  ], {
+    body: { formatName: pdf.name, storeInDocument: true }
+  });
+  const translationId = parseTranslationId(data);
+  const resultElementId = await pollTranslation(client, translationId);
+  return { translationId, resultElementId, formatName: pdf.name };
+}
+
+function selectDrawingElement(elements: OnshapeElement[]): OnshapeElement | null {
+  const drawings = elements.filter((e) => normalizeElementType(e.elementType).includes("DRAW"));
+  if (!drawings.length) return null;
+  drawings.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+  return drawings[0];
+}
+
+function resolveElementName(elements: OnshapeElement[], elementId: string): string | null {
+  const match = elements.find((e) => e.id === elementId);
+  return match ? match.name : null;
+}
+
+export async function generateOnshapeExportsForRevision(args: {
+  projectId: string;
+  revision: number;
+  force?: boolean;
+}): Promise<GenerateOnshapeExportResult> {
+  assertValidProjectId(args.projectId);
+  if (!Number.isInteger(args.revision) || args.revision < 1) throw new Error("Invalid revision id.");
+
+  const force = args.force === true;
+  const existing = await readOnshapeExportRecord(args.projectId, args.revision);
+  if (existing?.status === "SUCCESS" && !force) {
+    return { export: existing, reused: true };
+  }
+  if (force && existing) {
+    await archiveExportRecordIfPresent(args.projectId, args.revision);
+  }
+
+  const record = exportRecordBase();
+  let step: OnshapeExportError["step"] = "config";
+
+  try {
+    const run = await readOnshapeRunRecord(args.projectId, args.revision);
+    if (!run || run.status !== "SUCCESS") {
+      throw new Error("Onshape generation has not succeeded for this revision.");
+    }
+    record.source = {
+      did: run.created.did,
+      wid: run.created.wid,
+      eid: run.created.eid,
+      onshapeUrl: run.onshapeUrl
+    };
+
+    if (!run.created.did || !run.created.wid || !run.created.eid) {
+      throw new Error("Onshape run record missing created document identifiers.");
+    }
+
+    step = "resolve_elements";
+    const client = new OnshapeClient();
+    const elements = await fetchElements(client, run.created.did, run.created.wid);
+    const partStudioName = resolveElementName(elements, run.created.eid);
+    if (!partStudioName) throw new Error("Part Studio element not found in created document.");
+
+    const drawingElement = selectDrawingElement(elements);
+    if (!drawingElement) throw new Error("No drawing element found in created document.");
+
+    const exportsDir = exportDirForRevision(args.projectId, args.revision);
+
+    step = "partstudio_step";
+    record.exports.partstudio_step = {
+      elementId: run.created.eid,
+      elementName: partStudioName,
+      translationId: null,
+      resultElementId: null,
+      fileName: null,
+      bytes: 0
+    };
+    const partTranslation = await exportPartStudioStep({
+      did: run.created.did,
+      wid: run.created.wid,
+      eid: run.created.eid
+    });
+    record.exports.partstudio_step.translationId = partTranslation.translationId;
+    record.exports.partstudio_step.resultElementId = partTranslation.resultElementId;
+
+    step = "download";
+    {
+      const download = await downloadBlobElement(client, run.created.did, run.created.wid, partTranslation.resultElementId);
+      const slug = sanitizeSlug(partStudioName) || run.created.eid.slice(0, 8);
+      const fileName = `partstudio-${slug}.step`;
+      const filePath = path.join(exportsDir, fileName);
+      await atomicWriteFile(filePath, download.bytes);
+      record.exports.partstudio_step.fileName = fileName;
+      record.exports.partstudio_step.bytes = download.bytes.length;
+    }
+
+    step = "drawing_pdf";
+    record.exports.drawing_pdf = {
+      elementId: drawingElement.id,
+      elementName: drawingElement.name,
+      translationId: null,
+      resultElementId: null,
+      fileName: null,
+      bytes: 0
+    };
+    const drawingTranslation = await exportDrawingPdf({
+      did: run.created.did,
+      wid: run.created.wid,
+      eid: drawingElement.id
+    });
+    record.exports.drawing_pdf.translationId = drawingTranslation.translationId;
+    record.exports.drawing_pdf.resultElementId = drawingTranslation.resultElementId;
+
+    step = "download";
+    {
+      const download = await downloadBlobElement(client, run.created.did, run.created.wid, drawingTranslation.resultElementId);
+      const slug = sanitizeSlug(drawingElement.name) || drawingElement.id.slice(0, 8);
+      const fileName = `drawing-${slug}.pdf`;
+      const filePath = path.join(exportsDir, fileName);
+      await atomicWriteFile(filePath, download.bytes);
+      record.exports.drawing_pdf.fileName = fileName;
+      record.exports.drawing_pdf.bytes = download.bytes.length;
+    }
+
+    record.status = "SUCCESS";
+    record.errors = [];
+    await writeOnshapeExportRecord(args.projectId, args.revision, record);
+    return { export: record, reused: false };
+  } catch (e) {
+    record.status = "FAILED";
+    record.errors = [{ step, message: errorToMessage(e) }];
+    await writeOnshapeExportRecord(args.projectId, args.revision, record);
+    return { export: record, reused: false };
   }
 }

@@ -19,11 +19,13 @@ type OkResponse = {
   rev_id: string;
   approval: string;
   can_generate: boolean;
+  can_export: boolean;
   output_profile: string;
   pspec_summary_md: string;
   variables: Record<string, number>;
   provenance: ProvenanceEntry[];
   run: OnshapeRunRecord | null;
+  export: OnshapeExportRecord | null;
 };
 
 type OnshapeRunRecord = {
@@ -33,6 +35,31 @@ type OnshapeRunRecord = {
   created: { did: string | null; wid: string | null; eid: string | null };
   onshapeUrl: string | null;
   variablesApplied: { count: number };
+  errors: { step: string; message: string }[];
+};
+
+type OnshapeExportRecord = {
+  status: "SUCCESS" | "FAILED";
+  timestamp: string;
+  source: { did: string | null; wid: string | null; eid: string | null; onshapeUrl: string | null };
+  exports: {
+    partstudio_step: {
+      elementId: string | null;
+      elementName: string | null;
+      translationId: string | null;
+      resultElementId: string | null;
+      fileName: string | null;
+      bytes: number;
+    } | null;
+    drawing_pdf: {
+      elementId: string | null;
+      elementName: string | null;
+      translationId: string | null;
+      resultElementId: string | null;
+      fileName: string | null;
+      bytes: number;
+    } | null;
+  };
   errors: { step: string; message: string }[];
 };
 
@@ -65,6 +92,8 @@ export function OnshapePreview({ projectId, revId }: { projectId: string; revId:
   const [mappingErrors, setMappingErrors] = useState<ErrResponse["errors"]>([]);
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [generateBusy, setGenerateBusy] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [exportBusy, setExportBusy] = useState(false);
   const [reloadNonce, setReloadNonce] = useState(0);
 
   const rows = useMemo(() => {
@@ -119,6 +148,26 @@ export function OnshapePreview({ projectId, revId }: { projectId: string; revId:
     }
   }
 
+  async function exportOnshapeAssets() {
+    setExportBusy(true);
+    setExportError(null);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/revisions/${revId}/onshape/export`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({})
+      });
+      const json = await readJsonResponse<{ ok?: boolean; error?: string }>(res);
+      if (!res.ok || !json.ok) throw new Error(json.error ?? "Onshape export failed.");
+      setReloadNonce((n) => n + 1);
+    } catch (e) {
+      setExportError(e instanceof Error ? e.message : "Onshape export failed.");
+      setReloadNonce((n) => n + 1);
+    } finally {
+      setExportBusy(false);
+    }
+  }
+
   return (
     <div>
       <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
@@ -151,6 +200,12 @@ export function OnshapePreview({ projectId, revId }: { projectId: string; revId:
       {generateError ? (
         <div className="alert alertErr" style={{ marginBottom: 12 }}>
           <strong>Generation error:</strong> {generateError}
+        </div>
+      ) : null}
+
+      {exportError ? (
+        <div className="alert alertErr" style={{ marginBottom: 12 }}>
+          <strong>Export error:</strong> {exportError}
         </div>
       ) : null}
 
@@ -196,6 +251,15 @@ export function OnshapePreview({ projectId, revId }: { projectId: string; revId:
                   Approve this revision to enable Onshape generation.
                 </div>
               )}
+              {data.can_export ? (
+                <button
+                  className="btn"
+                  onClick={() => void exportOnshapeAssets()}
+                  disabled={exportBusy || data.export?.status === "SUCCESS"}
+                >
+                  {exportBusy ? "Exporting..." : "Export STEP + PDF"}
+                </button>
+              ) : null}
               <a className="btn" href={`/api/projects/${projectId}/download?kind=pspec_json&rev=${data.revision}`}>
                 Download PSPEC
               </a>
@@ -241,6 +305,47 @@ export function OnshapePreview({ projectId, revId }: { projectId: string; revId:
               <strong>Errors:</strong>
               <ul style={{ margin: "8px 0 0 18px" }}>
                 {data.run.errors.map((e, idx) => (
+                  <li key={`${e.step}-${idx}`}>
+                    <span className="kbd">{e.step}</span>: {e.message}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {data?.export ? (
+        <div className="panel" style={{ padding: 14, marginBottom: 12 }}>
+          <div style={{ fontWeight: 700, marginBottom: 8 }}>Onshape export run</div>
+          <div className={`alert ${data.export.status === "SUCCESS" ? "alertOk" : "alertErr"}`} style={{ marginBottom: 10 }}>
+            <strong>Status:</strong> {data.export.status} • <strong>Timestamp:</strong> {data.export.timestamp}
+          </div>
+
+          <div className="row">
+            {data.export.exports.partstudio_step?.fileName ? (
+              <a
+                className="btn"
+                href={`/api/projects/${projectId}/download?kind=onshape_partstudio_step&rev=${data.revision}`}
+              >
+                Download STEP
+              </a>
+            ) : null}
+            {data.export.exports.drawing_pdf?.fileName ? (
+              <a
+                className="btn"
+                href={`/api/projects/${projectId}/download?kind=onshape_drawing_pdf&rev=${data.revision}`}
+              >
+                Download Drawing PDF
+              </a>
+            ) : null}
+          </div>
+
+          {data.export.errors.length ? (
+            <div className="sectionTopGap alert alertErr">
+              <strong>Errors:</strong>
+              <ul style={{ margin: "8px 0 0 18px" }}>
+                {data.export.errors.map((e, idx) => (
                   <li key={`${e.step}-${idx}`}>
                     <span className="kbd">{e.step}</span>: {e.message}
                   </li>

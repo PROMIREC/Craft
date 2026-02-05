@@ -9,7 +9,7 @@ import {
   writeOnshapeMappingArtifacts,
   type OnshapeVariableProvenance
 } from "@/cad/onshapeMapping";
-import { readOnshapeRunRecord } from "@/cad/onshapeOps";
+import { readOnshapeExportRecord, readOnshapeRunRecord } from "@/cad/onshapeOps";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -66,7 +66,9 @@ export async function GET(_req: Request, ctx: { params: { projectId: string; rev
     const entry = meta.pspec.revisions.find((r) => r.revision === revision);
     const approval = entry?.approval?.state ?? "unknown";
     const run = await readOnshapeRunRecord(projectId, revision);
+    const exportRun = await readOnshapeExportRecord(projectId, revision);
     const canGenerate = approval === "approved" && Object.keys(variables).length > 0;
+    const canExport = run?.status === "SUCCESS";
 
     return NextResponse.json({
       ok: true,
@@ -79,7 +81,9 @@ export async function GET(_req: Request, ctx: { params: { projectId: string; rev
       pspec_summary_md: summary,
       variables,
       provenance,
-      run
+      run,
+      export: exportRun,
+      can_export: canExport
     });
   } catch (e) {
     return NextResponse.json({ ok: false, error: e instanceof Error ? e.message : "Unknown error" }, { status: 400 });
